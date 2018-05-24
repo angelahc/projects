@@ -20,7 +20,7 @@ library(FSelector)
 
 
 ```{r loading the train and test data}
-setwd("/Users/angelahc/Documents/IE/Courses/TERM 2/ML II/Feature Engineering Projects")
+setwd("/Users/angelahc/Documents/Feature Engineering Projects")
 training_data = read.csv("train.csv", sep=',')
 training_data
 test_data = read.csv("test.csv", sep=',')
