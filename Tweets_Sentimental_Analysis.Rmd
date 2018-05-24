@@ -1,0 +1,221 @@
+---
+title: "Assignment 3_Angela He Chen"
+output: html_document
+author: Angela He Chen
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading packages}
+library(caret)
+library(e1071)
+library(tm)
+library(SnowballC)
+```
+
+```{r loading dataset}
+setwd("/Users/angelahc/Downloads/")
+data <- read.csv("assignment_data/training.csv", stringsAsFactors = FALSE)
+testing <- read.csv("assignment_data/test.csv", stringsAsFactors = FALSE)
+str(data)
+```
+
+```{r randomizing the dataset}
+set.seed(123)
+data <- data[sample(nrow(data)), ]
+data <- data[sample(nrow(data)), ]
+```
+
+```{r}
+# converting the sentiment variable from character to factor variable
+data$airline_sentiment <- as.factor(data$airline_sentiment)
+
+# viewing the tweets
+corpus <- Corpus(VectorSource(data$text))
+inspect(corpus[1:2])
+```
+
+```{r}
+# creating the function to clean the corpus
+cleanCorpus <- function(corpus) {
+  corpus <-tm_map(corpus, stemDocument)
+  corpus.tmp <- tm_map(corpus,removePunctuation)
+  corpus.tmp <- tm_map(corpus.tmp,stripWhitespace)
+  corpus.tmp <- tm_map(corpus.tmp,removeWords,stopwords("en"))
+  return(corpus.tmp)
+}
+
+# cleaning the corpus
+corpus_clean <- cleanCorpus(corpus)
+
+# viewing clean corpus
+inspect(corpus_clean[1:2])
+```
+
+```{r document term matrix}
+# creating the document term matrix with binning
+dtm <- DocumentTermMatrix(corpus_clean,control = list(weighting= function(x) weightBin(x)))
+
+# removing terms that do not appear frequently
+dtm <- removeSparseTerms(dtm, .99)
+
+inspect(dtm)
+```
+
+```{r same for test data}
+corpus_t <- Corpus(VectorSource(testing$text))
+corpus_t_clean <- cleanCorpus(corpus_t)
+dtm_t <- DocumentTermMatrix(corpus_t_clean,control = list(weighting= function(x) weightBin(x)))
+
+# removing terms that do not appear frequently
+dtm_t <- removeSparseTerms(dtm, .99)
+
+inspect(dtm_t)
+```
+
+
+## Training and Test data sets
+
+Splitting data into training and test sets (80% for training and 20% for test).
+
+```{r}
+dim(data)
+
+train_data <- data[1:5600,]
+test_data <- data[5601:7000,]
+
+dtm_train <- dtm[1:5600,]
+dtm_test <- dtm[5601:7000,]
+
+corpus_clean_train <- corpus_clean[1:5600]
+corpus_clean_test <- corpus_clean[5601:7000]
+```
+
+```{r}
+X <- as.matrix(dtm_train)
+y <- train_data$airline_sentiment
+
+training <- as.data.frame(cbind(y,X))
+test <- as.data.frame(as.matrix(dtm_test))
+```
+
+
+## Modelling
+
+# 1. Naïve Bayes Model
+
+```{r}
+nb_model <- naiveBayes(training, y, laplace = 1)
+probs <- predict(nb_model, newdata=test, type = "raw")
+classes <- predict(nb_model, newdata=test, type = "class")
+```
+
+Model evaluation
+
+```{r confusion matrix}
+# Confusion matrix
+table("Predictions"= classes,  "Actual" = test_data$airline_sentiment)
+```
+
+
+```{r accuracy score}
+acc <- function(table){
+  TP = table[1,1];  # true positives
+  TN = table[2,2];  # true negatives
+  FP = table[1,2];  # false positives
+  FN = table[2,1];  # false negatives
+  acc = (TP + TN)/(TP + TN + FP + FN)
+  return(acc)
+}
+acc(table("Predictions"= classes,  "Actual" = test_data$airline_sentiment))
+```
+
+
+# 2. SVM Model
+
+2.1. Simple SVM Model
+```{r SVM model}
+# choices of types: C-classfication or nu-classification
+# C-classfication seemed to perform better and easier to optimize
+svm_model <- svm(y~., training, type="C-classification", kernel="sigmoid", cost=1)
+```
+
+```{r confusion matrix}
+prediction <- predict(svm_model, test)
+table("Predictions"= prediction,  "Actual" = test_data$airline_sentiment)
+```
+
+```{r calculating accuracy score}
+accuracy_score <- function(table){
+  TP = table[1,1];  # true positives
+  TN = table[2,2];  # true negatives
+  FP = table[1,2];  # false positives
+  FN = table[2,1];  # false negatives
+  acc = (TP + TN)/(TP + TN + FP + FN)
+  return(acc)
+}
+accuracy_score(table("Predictions"= prediction,  "Actual" = test_data$airline_sentiment))
+```
+
+
+2.2. SVM Model with tunned parameter
+
+```{r model}
+# 5-fold cross validation
+fitControl <- trainControl(method = "cv",
+                           number = 5,
+                           verboseIter = TRUE)
+
+# running svm model with tunning
+cv_svm <- train(X,y,
+                method="svmRadial",
+                preProc = c("center", "scale"),
+                tuneLength = 5,
+                metric = "Accuracy",
+                trControl = fitControl)
+
+print(cv_svm)
+```
+
+```{r confusion matrix}
+cv_svm_prediction <- predict(cv_svm, test)
+table("Predictions"= cv_svm_prediction,  "Actual" = test_data$airline_sentiment)
+```
+
+```{r accuracy score}
+accuracy_score(table("Predictions"= cv_svm_prediction,  "Actual" = test_data$airline_sentiment))
+```
+
+
+2.3. SVM Model with tunning function
+
+```{r tunning}
+svm_tune<- tune(svm, X, y, cost=2^(2:4), validation.x = test, 
+                validation.y = test_data$airline_sentiment, 
+                tunecontrol=tune.control(sampling="cross", cross=5)) 
+```
+
+```{r confusion matrix}
+tune_model <- svm_tune$best.model
+tune_model
+tune_svm_prediction <- predict(tune_model, test)
+table("Predictions"= tune_svm_prediction,  "Actual" = test_data$airline_sentiment)
+```
+
+```{r accuracy score}
+accuracy_score(table("Predictions"= tune_svm_prediction,  "Actual" = test_data$airline_sentiment))
+```
+
+## Predicting with test data
+
+```{r}
+test_twitter <- as.data.frame(as.matrix(dtm_t))
+prediction <- predict(cv_svm, test_twitter)
+
+submit <- data.frame(Id=testing$tweet_id,Sentiment=prediction)
+colnames(submit) <-c("tweet_id", "airline_sentiment")
+
+write.csv(submit,file="submission_svm.csv",row.names=F)
+```
